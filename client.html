@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test WebSocket</title>
+</head>
+<body>
+    <h1>Lista Pazienti</h1>
+    <ul id="patientsList"></ul>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        const socket = io("http://localhost:5000");
+
+        socket.on("patientsUpdated", async () => {
+            const response = await fetch("http://localhost:5000/patients/1");
+            const patients = await response.json();
+            const list = document.getElementById("patientsList");
+            list.innerHTML = "";
+            patients.forEach(patient => {
+                list.innerHTML += `<li>${patient.full_name} - Numero: ${patient.assigned_number} - Status: ${patient.status}</li>`;
+            });
+        });
+
+        socket.emit("updatePatients");
+    </script>
+</body>
+</html>
