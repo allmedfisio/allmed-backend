@@ -48,7 +48,7 @@ io.on("connection", (socket) => {
 // Avvio del server
 const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT, () => {
-    console.log(`🚀 Server WebSocket attivo su http://localhost:${PORT}`);
+    console.log(`🚀 Server WebSocket attivo sulla porta ${PORT}`);
 });
 
 /*pool.connect()
