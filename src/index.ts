@@ -6,6 +6,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import { setupPatientRoutes } from "./routes/patients";
 import { setupDoctorRoutes } from "./routes/doctors";
+import { setupPingRoutes } from "./routes/ping";
 import authRoutes from "./routes/auth";
 
 dotenv.config();
@@ -23,6 +24,7 @@ const io = new Server(httpServer, {
 app.use("/patients", setupPatientRoutes(io));
 app.use("/doctors", setupDoctorRoutes(io));
 app.use("/auth", authRoutes);
+app.use("/ping", setupPingRoutes(io));
 
 // Evento WebSocket quando un client si connette
 io.on("connection", (socket) => {
