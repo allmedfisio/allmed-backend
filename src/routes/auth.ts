@@ -1,7 +1,8 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import pool from "../db"; 
+// import pool from "../db"; 
+import { db } from "../firebase";
 
 const router = express.Router();
 const SECRET_KEY = "tuo_segretissimo_token"; // ⚠️ Da sostituire con una variabile d'ambiente!
@@ -9,16 +10,20 @@ const SECRET_KEY = "tuo_segretissimo_token"; // ⚠️ Da sostituire con una var
 // Endpoint di login
 router.post("/login", async (req: any, res: any) => {
     const { username, password } = req.body;
+    console.log(req.body);
     try {
-        const result = await pool.query("SELECT * FROM admins WHERE username = $1", [username]);
-        if (result.rows.length === 0) return res.status(401).json({ error: "Nessun utente" });
-
-        const user = result.rows[0];
+        //const result = await pool.query("SELECT * FROM admins WHERE username = $1", [username]);
+        //if (result.rows.length === 0) return res.status(401).json({ error: "Nessun utente" });
+        const snapshot = await db.collection("admins").where("username", "==", username).get();
+        if (snapshot.empty) return res.status(401).json({ error: "Nessun utente" });
+        const userDoc = snapshot.docs[0];
+        //const user = result.rows[0];
+        const user = userDoc.data();
         const validPassword = await bcrypt.compare(password, user.password);
 
         if (!validPassword) return res.status(401).json({ error: "Password sbagliata"});
 
-        const token = jwt.sign({ id: user.id, username: user.username }, SECRET_KEY, { expiresIn: "2h" });
+        const token = jwt.sign({ id: userDoc.id, username: user.username }, SECRET_KEY, { expiresIn: "2h" });
         res.json({ token });
     } catch (err) {
         res.status(500).json({ error: "Errore nel server" });
@@ -36,21 +41,29 @@ router.post("/register", async (req: any, res: any) => {
       }
   
       // Verifica se l'email è già registrata
-      const existing = await pool.query("SELECT * FROM admins WHERE username = $1", [username]);
+      const snapshot = await db.collection("admins").where("username", "==", username).get();
+      if (!snapshot.empty) {
+      return res.status(400).json({ error: "Username già in uso" });
+    }
+      /* const existing = await pool.query("SELECT * FROM admins WHERE username = $1", [username]);
       if (existing.rows.length > 0) {
         return res.status(400).json({ error: "Username già in uso" });
-      }
+      } */
   
       // Hash della password
       const hashedPassword = await bcrypt.hash(password, 10);
   
       // Inserisci nel DB
-      const result = await pool.query(
+      const newUserRef = await db.collection("admins").add({
+        username,
+        password: hashedPassword,
+      });
+      /* const result = await pool.query(
         "INSERT INTO admins (username, password) VALUES ($1, $2) RETURNING id, username",
         [username, hashedPassword]
-      );
+      ); */
   
-      res.status(201).json({ message: "Utente registrato", user: result.rows[0] });
+      res.status(201).json({ message: "Utente registrato", user: { id: newUserRef.id, username } });
     } catch (err) {
       console.error("Errore registrazione:", err);
       res.status(500).json({ error: "Errore del server" });
