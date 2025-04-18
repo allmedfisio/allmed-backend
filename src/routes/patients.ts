@@ -87,7 +87,7 @@ export function setupPatientRoutes(io: Server) {
         }
     }
 
-    router.put("/:id/call", authenticateToken, async (req, res) => {
+    //router.put("/:id/call", authenticateToken, async (req, res) => {
 
         router.put("/:id/call", authenticateToken, async (req, res) => {
             await updateStatus(req.params.id, "chiamato", "patientsUpdatedChiamato", res);
@@ -112,7 +112,7 @@ export function setupPatientRoutes(io: Server) {
         } catch (err) {
             res.status(500).json({ error: "Errore nel server" });
         } */
-    });
+    //});
 
     // Segnare paziente come "in visita"
     /* router.put("/:id/in-visit", authenticateToken, async (req, res) => {
