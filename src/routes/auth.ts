@@ -15,11 +15,15 @@ router.post("/login", async (req: any, res: any) => {
         //const result = await pool.query("SELECT * FROM admins WHERE username = $1", [username]);
         //if (result.rows.length === 0) return res.status(401).json({ error: "Nessun utente" });
         const snapshot = await db.collection("admins").where("username", "==", username).get();
+        console.log("snapshot: ", snapshot)
         if (snapshot.empty) return res.status(401).json({ error: "Nessun utente" });
         const userDoc = snapshot.docs[0];
+        console.log("userDOC: ", userDoc)
         //const user = result.rows[0];
         const user = userDoc.data();
+        console.log("user: ", user)
         const validPassword = await bcrypt.compare(password, user.password);
+        console.log("validPasword: ", validPassword)
 
         if (!validPassword) return res.status(401).json({ error: "Password sbagliata"});
 
