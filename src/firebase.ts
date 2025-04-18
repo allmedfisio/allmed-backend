@@ -1,8 +1,9 @@
 import { getApps, initializeApp, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import * as serviceAccount from "../firebase-key.json";
+//import * as serviceAccount from "../firebase-key.json";
 
 console.log("📦 Inizio inizializzazione Firebase");
+const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG!);
 
 if (getApps().length === 0) {
   console.log("🚀 Nessuna app Firebase trovata, inizializzo...");
