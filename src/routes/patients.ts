@@ -57,15 +57,17 @@ export function setupPatientRoutes(io: Server) {
 
     // Ottenere la lista dei pazienti in attesa
     router.get("/waiting", authenticateToken, async (req, res) => {
+        console.log("in waiting")
         try {
             /* const patients = await pool.query(
                 "SELECT * FROM patients WHERE status = 'in_attesa' ORDER BY assigned_number"
             ); */
-            const snapshot = await patientsRef
+            const snapshot = await db.collection("patients")
                 .where("status", "==", "in_attesa")
                 .orderBy("assigned_number")
                 .get();
             const patients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            console.log("patients: ", patients)
             io.emit("patientListGenerated");
             res.json(patients);
         } catch (err) {
