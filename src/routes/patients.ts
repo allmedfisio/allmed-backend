@@ -64,13 +64,15 @@ export function setupPatientRoutes(io: Server) {
             ); */
             const snapshot = await db.collection("patients")
                 .where("status", "==", "in_attesa")
-                .orderBy("assigned_number")
+                //.orderBy("assigned_number")
                 .get();
+            console.log(snapshot);
             const patients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             console.log("patients: ", patients)
             io.emit("patientListGenerated");
             res.json(patients);
         } catch (err) {
+            console.error("Errore nel recupero pazienti:", err); // AGGIUNGI QUESTO
             res.status(500).json({ error: "Errore nel server" });
         }
     });
