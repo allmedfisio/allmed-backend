@@ -28,7 +28,9 @@ router.post("/login", async (req: any, res: any) => {
 
         const token = jwt.sign({ id: userDoc.id, username: user.username }, SECRET_KEY, { expiresIn: "2h" });
         res.json({ token });
-    } catch (err) {
+    } catch (err: any) {
+        console.error("Login error:", err.message);
+        console.error(err.stack);
         res.status(500).json({ error: "Errore nel server" });
     }
 });
