@@ -102,7 +102,9 @@ export function setupPatientRoutes(io: Server) {
     // Modificare un paziente
     router.put("/:id", authenticateToken, async (req, res) => {
         try {
-            const { id, data } = req.body;
+            const id: any = req.params.id;
+            const data  = req.body;
+            console.log(id, data)
             await patientsRef.doc(id).update(data);
             io.emit("patientsUpdated");
             res.json({ message: "Paziente aggiornato con successo" });
