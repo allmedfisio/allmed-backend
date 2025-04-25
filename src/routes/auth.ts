@@ -1,7 +1,6 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-// import pool from "../db"; 
 import { db } from "../firebase";
 
 const router = express.Router();

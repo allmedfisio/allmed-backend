@@ -18,6 +18,11 @@ if (getApps().length === 0) {
     }),
   });
   console.log("✅ Firebase inizializzato con successo!");
+  console.log("ENV:", {
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    hasPrivateKey: !!process.env.FIREBASE_PRIVATE_KEY,
+  });
 } else {
   console.log("⚠️ Firebase app già inizializzata");
 }
