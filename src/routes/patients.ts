@@ -99,6 +99,18 @@ export function setupPatientRoutes(io: Server) {
         }
     });
 
+    // Modificare un paziente
+    router.put("/:id", authenticateToken, async (req, res) => {
+        try {
+            const { id, data } = req.body;
+            await patientsRef.doc(id).update(data);
+            io.emit("patientsUpdated");
+            res.json({ message: "Paziente aggiornato con successo" });
+        } catch (err) {
+            res.status(500).json({ error: "Errore nel server" });
+        }
+    });
+
     // Rimuovere un paziente dalla lista
     router.delete("/:id", authenticateToken, async (req, res) => {
         try {
