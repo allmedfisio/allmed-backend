@@ -45,7 +45,6 @@ export function setupPatientRoutes(io: Server) {
     router.get("/waiting", authenticateToken, async (req, res) => {
         try {
             const snapshot = await patientsRef
-                .where("status", "==", "in_attesa")
                 .orderBy("assigned_number")
                 .get();
             const patients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
