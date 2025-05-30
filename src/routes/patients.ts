@@ -6,123 +6,177 @@ import { db } from "../firebase";
 const router = express.Router();
 
 export function setupPatientRoutes(io: Server) {
+  const patientsRef = db.collection("patients");
 
-    const patientsRef = db.collection("patients");
+  // Funzione per ottenere il prossimo numero progressivo
+  async function getNextNumber(): Promise<number> {
+    const snapshot = await patientsRef
+      .orderBy("assigned_number", "desc")
+      .limit(1)
+      .get();
+    const max = snapshot.empty
+      ? 0
+      : snapshot.docs[0].data().assigned_number || 0;
+    return max + 1;
+  }
 
-    // Funzione per ottenere il prossimo numero progressivo
-    async function getNextNumber(): Promise<number> {
-        const snapshot = await patientsRef
-            .orderBy("assigned_number", "desc")
-            .limit(1)
-            .get();
-        const max = snapshot.empty ? 0 : snapshot.docs[0].data().assigned_number || 0;
-        return max + 1;
-    }
-
-    // Aggiungere un nuovo paziente
-    router.post("/", authenticateToken, async (req: any, res: any) => {
-        try {
-            const { full_name, assigned_study } = req.body;
-            if (!full_name || !assigned_study) {
-                return res.status(400).json({ error: "Nome e studio sono obbligatori" });
-            }
-            const assigned_number = await getNextNumber();
-            const newPatient = {
-                full_name,
-                assigned_study,
-                assigned_number,
-                status: "in_attesa",
-            };
-            const docRef = await patientsRef.add(newPatient);
-            io.emit("patientsUpdated");
-            res.json({ id: docRef.id, ...newPatient });
-        } catch (err) {
-            res.status(500).json({ error: "Errore nel server" });
-        }
-    });
-
-    // Ottenere la lista dei pazienti in attesa
-    router.get("/waiting", authenticateToken, async (req, res) => {
-        try {
-            const snapshot = await patientsRef
-                .orderBy("assigned_number")
-                .get();
-            const patients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            io.emit("patientListGenerated");
-            res.json(patients);
-        } catch (err) {
-            res.status(500).json({ error: "Errore nel server" });
-        }
-    });
-
-    // Cambiare stato (chiamato, in visita, completato)
-    async function updateStatus(id: string, status: string, eventName: string, res: any) {
-        try {
-            const docRef = patientsRef.doc(id);
-            await docRef.update({ status });
-            const updatedDoc = await docRef.get();
-
-            io.emit(eventName);
-            res.json({ id, ...updatedDoc.data() });
-        } catch (err) {
-            res.status(500).json({ error: "Errore nel server" });
-        }
-    }
-
-        router.put("/:id/call", authenticateToken, async (req, res) => {
-            await updateStatus(req.params.id, "in_visita", "patientsUpdatedChiamato", res);
+  // Aggiungere un nuovo paziente
+  router.post("/", authenticateToken, async (req: any, res: any) => {
+    try {
+      const { full_name, assigned_study, appointment_time } = req.body;
+      const numericAssignedStudy = Number(assigned_study);
+      if (!full_name || !assigned_study || !appointment_time) {
+        return res.status(400).json({
+          error: "Nome, studio e orario appuntamento sono obbligatori",
         });
-    
-        /*router.put("/:id/in-visit", authenticateToken, async (req, res) => {
-            await updateStatus(req.params.id, "in_visita", "patientUpdatedInVisita", res);
+      }
+      const assigned_number = await getNextNumber();
+      const newPatient = {
+        full_name,
+        assigned_study: numericAssignedStudy,
+        assigned_number,
+        appointment_time: appointment_time,
+        status: "in_attesa",
+      };
+      const docRef = await patientsRef.add(newPatient);
+
+      // ✨ invia solo il nuovo paziente
+      io.emit("patientChanged", {
+        id: docRef.id,
+        full_name: newPatient.full_name,
+        assigned_study: newPatient.assigned_study,
+        assigned_number: newPatient.assigned_number,
+        appointment_time: newPatient.appointment_time,
+        status: newPatient.status,
+      });
+      res.json({ id: docRef.id, ...newPatient });
+    } catch (err) {
+      res.status(500).json({ error: "Errore nel server" });
+    }
+  });
+
+  // Ottenere la lista dei pazienti
+  router.get("/waiting", authenticateToken, async (req, res) => {
+    try {
+      const snapshot = await patientsRef.orderBy("assigned_number").get();
+      const patients = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      //io.emit("patientListGenerated");
+      res.json(patients);
+    } catch (err) {
+      res.status(500).json({ error: "Errore nel server" });
+    }
+  });
+
+  router.put(
+    "/:id/call",
+    authenticateToken,
+    async (req, res): Promise<void> => {
+      const { id } = req.params;
+      try {
+        // Recupera il paziente corrente
+        const patientRef = patientsRef.doc(id);
+        const patientSnap = await patientRef.get();
+        if (!patientSnap.exists) {
+          res.status(404).json({ error: "Paziente non trovato" });
+          return;
+        }
+        const { assigned_study } = patientSnap.data()!;
+        // Trova eventuali pazienti già in visita per questo stesso studio
+        const prevSnap = await patientsRef
+          .where("assigned_study", "==", assigned_study)
+          .where("status", "==", "in_visita")
+          .get();
+
+        // Elimina i vecchi, notificali ai client
+        const batch = db.batch();
+        prevSnap.docs.forEach((doc) => {
+          if (doc.id !== id) {
+            batch.delete(patientsRef.doc(doc.id));
+            io.to("segreteria").emit("patientRemoved", { id: doc.id });
+          }
         });
-    
-        router.put("/:id/complete", authenticateToken, async (req, res) => {
-            await updateStatus(req.params.id, "completato", "patientUpdatedCompletato", res);
-        }); */
+        await batch.commit();
 
-    // Ottenere i pazienti di un determinato studio
-    router.get("/study/:studyId", authenticateToken, async (req, res) => {
-        try {
-            const { studyId } = req.params;
-            const snapshot = await patientsRef
-                .where("assigned_study", "==", Number(studyId))
-                .where("status", "==", "in_attesa")
-                .orderBy("assigned_number")
-                .get();
-            const patients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            io.emit("patientListStudy");
-            res.json(patients);
-        } catch (err) {
-            res.status(500).json({ error: "Errore nel server" });
-        }
-    });
+        // Aggiorna lo stato del paziente chiamato
+        await patientRef.update({ status: "in_visita" });
+        io.emit("patientChanged", { id, status: "in_visita" });
 
-    // Modificare un paziente
-    router.put("/:id", authenticateToken, async (req, res) => {
-        try {
-            const id: any = req.params.id;
-            const data  = req.body;
-            console.log(id, data)
-            await patientsRef.doc(id).update(data);
-            io.emit("patientsUpdated");
-            res.json({ message: "Paziente aggiornato con successo" });
-        } catch (err) {
-            res.status(500).json({ error: "Errore nel server" });
-        }
-    });
+        res.json({ id, status: "in_visita" });
+        return;
+      } catch (err) {
+        console.error("Errore in PUT /patients/:id/call", err);
+        res.status(500).json({ error: "Errore del server" });
+        return;
+      }
+    }
+  );
 
-    // Rimuovere un paziente dalla lista
-    router.delete("/:id", authenticateToken, async (req, res) => {
-        try {
-            const { id } = req.params;
-            await patientsRef.doc(id).delete();
-            io.emit("patientsUpdated");
-            res.json({ message: "Paziente rimosso" });
-        } catch (err) {
-            res.status(500).json({ error: "Errore nel server" });
-        }
-    });
+  // Ottenere i pazienti di un determinato studio
+  router.get("/study/:studyId", authenticateToken, async (req, res) => {
+    const { studyId } = req.params;
+    try {
+      // Ottiene paziente in visita
+      const currentSnapshot = await patientsRef
+        .where("assigned_study", "==", studyId)
+        .where("status", "==", "in_visita")
+        .limit(1)
+        .get();
 
-    return router;
+      const currentPatient = !currentSnapshot.empty
+        ? { id: currentSnapshot.docs[0].id, ...currentSnapshot.docs[0].data() }
+        : null;
+
+      // Ottiene il prossimo paziente in attesa ordinato per appointment_time
+      const nextSnapshot = await patientsRef
+        .where("assigned_study", "==", studyId)
+        .where("status", "==", "in_attesa")
+        .orderBy("appointment_time")
+        .limit(1)
+        .get();
+
+      const nextPatient = !nextSnapshot.empty
+        ? { id: nextSnapshot.docs[0].id, ...nextSnapshot.docs[0].data() }
+        : null;
+
+      res.json({
+        current: currentPatient,
+        next: nextPatient,
+      });
+    } catch (err) {
+      console.error("Errore nel recupero pazienti:", err);
+      res.status(500).json({ error: "Errore del server" });
+    }
+  });
+
+  // Modificare un paziente
+  router.put("/:id", authenticateToken, async (req, res) => {
+    try {
+      const id: any = req.params.id;
+      const data = req.body;
+      console.log(id, data);
+      await patientsRef.doc(id).update(data);
+      io.emit("patientsUpdated");
+      res.json({ message: "Paziente aggiornato con successo" });
+    } catch (err) {
+      res.status(500).json({ error: "Errore nel server" });
+    }
+  });
+
+  // Rimuovere un paziente dalla lista
+  router.delete("/:id", authenticateToken, async (req, res) => {
+    try {
+      const { id } = req.params;
+      await patientsRef.doc(id).delete();
+
+      // ✨ avvisa i client di rimuovere localmente questo id
+      io.to("segreteria").emit("patientRemoved", { id });
+      res.json({ message: "Paziente rimosso" });
+    } catch (err) {
+      res.status(500).json({ error: "Errore nel server" });
+    }
+  });
+  return router;
 }

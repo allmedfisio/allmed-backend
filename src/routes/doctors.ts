@@ -26,8 +26,33 @@ export function setupDoctorRoutes(io: Server) {
     router.get("/active-doctors", authenticateToken, async (req, res) => {
         try {
             const doctorsSnap = await db.collection("doctors").get();
+            const doctors = doctorsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            io.emit("doctorsUpdated");
+            res.json(doctors);
+        } catch (err) {
+            res.status(500).json({ error: "Errore nel server" });
+        }
+    });
+
+    //Aggiornare ultimo paziente chiamato del medico
+        router.put("/:id/call", authenticateToken, async (req, res) => {
+            try {
+                const id: any = req.params.id;
+                const patientName  = req.body;
+                console.log("id: ", id, "nome: ", patientName)
+                await db.collection("doctors").doc(id).update(patientName);
+                io.emit("doctorsUpdated");
+                res.json({ message: "Paziente aggiunto come ultimo paziente al medico" });
+            } catch (err) {
+                res.status(500).json({ error: "Errore nel server" });
+            }
+        });
+
+   /* router.get("/active-doctors", authenticateToken, async (req, res) => {
+        try {
+            const doctorsSnap = await db.collection("doctors").get();
             const patientsSnap = await db.collection("patients")
-              .where("status", "==", "chiamato")
+              .where("status", "==", "in_visita")
               .get();
       
             const calledPatients = patientsSnap.docs.map((doc) => doc.data());
@@ -41,14 +66,14 @@ export function setupDoctorRoutes(io: Server) {
                 id: doc.id,
                 name: doctor.name,
                 study: doctor.study,
-                current_patient: currentPatient?.assigned_number || null,
+                current_patient: currentPatient?.full_name || null,
               };
             });
             res.json(doctors);
         } catch (err) {
             res.status(500).json({ error: "Errore nel server" });
         }
-    });
+    }); */
 
     // Rimuovere un medico dalla lista
         router.delete("/:id", authenticateToken, async (req, res) => {
