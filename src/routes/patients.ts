@@ -1,6 +1,6 @@
 import express from "express";
 import { Server } from "socket.io";
-import { authenticateToken } from "./auth";
+import { authenticateToken, authorizeRoles } from "./auth";
 import { db } from "../firebase";
 
 const router = express.Router();
@@ -21,58 +21,69 @@ export function setupPatientRoutes(io: Server) {
   }
 
   // Aggiungere un nuovo paziente
-  router.post("/", authenticateToken, async (req: any, res: any) => {
-    try {
-      const { full_name, assigned_study, appointment_time } = req.body;
-      const numericAssignedStudy = Number(assigned_study);
-      if (!full_name || !assigned_study || !appointment_time) {
-        return res.status(400).json({
-          error: "Nome, studio e orario appuntamento sono obbligatori",
-        });
-      }
-      const assigned_number = await getNextNumber();
-      const newPatient = {
-        full_name,
-        assigned_study: numericAssignedStudy,
-        assigned_number,
-        appointment_time: appointment_time,
-        status: "in_attesa",
-      };
-      const docRef = await patientsRef.add(newPatient);
+  router.post(
+    "/",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria"),
+    async (req: any, res: any) => {
+      try {
+        const { full_name, assigned_study, appointment_time } = req.body;
+        const numericAssignedStudy = Number(assigned_study);
+        if (!full_name || !assigned_study || !appointment_time) {
+          return res.status(400).json({
+            error: "Nome, studio e orario appuntamento sono obbligatori",
+          });
+        }
+        const assigned_number = await getNextNumber();
+        const newPatient = {
+          full_name,
+          assigned_study: numericAssignedStudy,
+          assigned_number,
+          appointment_time: appointment_time,
+          status: "in_attesa",
+        };
+        const docRef = await patientsRef.add(newPatient);
 
-      // ✨ invia solo il nuovo paziente
-      io.emit("patientChanged", {
-        id: docRef.id,
-        full_name: newPatient.full_name,
-        assigned_study: newPatient.assigned_study,
-        assigned_number: newPatient.assigned_number,
-        appointment_time: newPatient.appointment_time,
-        status: newPatient.status,
-      });
-      res.json({ id: docRef.id, ...newPatient });
-    } catch (err) {
-      res.status(500).json({ error: "Errore nel server" });
+        // ✨ invia solo il nuovo paziente
+        io.emit("patientChanged", {
+          id: docRef.id,
+          full_name: newPatient.full_name,
+          assigned_study: newPatient.assigned_study,
+          assigned_number: newPatient.assigned_number,
+          appointment_time: newPatient.appointment_time,
+          status: newPatient.status,
+        });
+        res.json({ id: docRef.id, ...newPatient });
+      } catch (err) {
+        res.status(500).json({ error: "Errore nel server" });
+      }
     }
-  });
+  );
 
   // Ottenere la lista dei pazienti
-  router.get("/waiting", authenticateToken, async (req, res) => {
-    try {
-      const snapshot = await patientsRef.orderBy("assigned_number").get();
-      const patients = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      //io.emit("patientListGenerated");
-      res.json(patients);
-    } catch (err) {
-      res.status(500).json({ error: "Errore nel server" });
+  router.get(
+    "/waiting",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria"),
+    async (req, res) => {
+      try {
+        const snapshot = await patientsRef.orderBy("assigned_number").get();
+        const patients = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        //io.emit("patientListGenerated");
+        res.json(patients);
+      } catch (err) {
+        res.status(500).json({ error: "Errore nel server" });
+      }
     }
-  });
+  );
 
   router.put(
     "/:id/call",
     authenticateToken,
+    authorizeRoles("admin", "segreteria", "medico"),
     async (req, res): Promise<void> => {
       const { id } = req.params;
       try {
@@ -115,68 +126,86 @@ export function setupPatientRoutes(io: Server) {
   );
 
   // Ottenere i pazienti di un determinato studio
-  router.get("/study/:studyId", authenticateToken, async (req, res) => {
-    const { studyId } = req.params;
-    try {
-      // Ottiene paziente in visita
-      const currentSnapshot = await patientsRef
-        .where("assigned_study", "==", studyId)
-        .where("status", "==", "in_visita")
-        .limit(1)
-        .get();
+  router.get(
+    "/study/:studyId",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria", "medico"),
+    async (req, res) => {
+      const { studyId } = req.params;
+      try {
+        // Ottiene paziente in visita
+        const currentSnapshot = await patientsRef
+          .where("assigned_study", "==", studyId)
+          .where("status", "==", "in_visita")
+          .limit(1)
+          .get();
 
-      const currentPatient = !currentSnapshot.empty
-        ? { id: currentSnapshot.docs[0].id, ...currentSnapshot.docs[0].data() }
-        : null;
+        const currentPatient = !currentSnapshot.empty
+          ? {
+              id: currentSnapshot.docs[0].id,
+              ...currentSnapshot.docs[0].data(),
+            }
+          : null;
 
-      // Ottiene il prossimo paziente in attesa ordinato per appointment_time
-      const nextSnapshot = await patientsRef
-        .where("assigned_study", "==", studyId)
-        .where("status", "==", "in_attesa")
-        .orderBy("appointment_time")
-        .limit(1)
-        .get();
+        // Ottiene il prossimo paziente in attesa ordinato per appointment_time
+        const nextSnapshot = await patientsRef
+          .where("assigned_study", "==", studyId)
+          .where("status", "==", "in_attesa")
+          .orderBy("appointment_time")
+          .limit(1)
+          .get();
 
-      const nextPatient = !nextSnapshot.empty
-        ? { id: nextSnapshot.docs[0].id, ...nextSnapshot.docs[0].data() }
-        : null;
+        const nextPatient = !nextSnapshot.empty
+          ? { id: nextSnapshot.docs[0].id, ...nextSnapshot.docs[0].data() }
+          : null;
 
-      res.json({
-        current: currentPatient,
-        next: nextPatient,
-      });
-    } catch (err) {
-      console.error("Errore nel recupero pazienti:", err);
-      res.status(500).json({ error: "Errore del server" });
+        res.json({
+          current: currentPatient,
+          next: nextPatient,
+        });
+      } catch (err) {
+        console.error("Errore nel recupero pazienti:", err);
+        res.status(500).json({ error: "Errore del server" });
+      }
     }
-  });
+  );
 
   // Modificare un paziente
-  router.put("/:id", authenticateToken, async (req, res) => {
-    try {
-      const id: any = req.params.id;
-      const data = req.body;
-      console.log(id, data);
-      await patientsRef.doc(id).update(data);
-      io.emit("patientsUpdated");
-      res.json({ message: "Paziente aggiornato con successo" });
-    } catch (err) {
-      res.status(500).json({ error: "Errore nel server" });
+  router.put(
+    "/:id",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria"),
+    async (req, res) => {
+      try {
+        const id: any = req.params.id;
+        const data = req.body;
+        console.log(id, data);
+        await patientsRef.doc(id).update(data);
+        io.emit("patientsUpdated");
+        res.json({ message: "Paziente aggiornato con successo" });
+      } catch (err) {
+        res.status(500).json({ error: "Errore nel server" });
+      }
     }
-  });
+  );
 
   // Rimuovere un paziente dalla lista
-  router.delete("/:id", authenticateToken, async (req, res) => {
-    try {
-      const { id } = req.params;
-      await patientsRef.doc(id).delete();
+  router.delete(
+    "/:id",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria"),
+    async (req, res) => {
+      try {
+        const { id } = req.params;
+        await patientsRef.doc(id).delete();
 
-      // ✨ avvisa i client di rimuovere localmente questo id
-      io.to("segreteria").emit("patientRemoved", { id });
-      res.json({ message: "Paziente rimosso" });
-    } catch (err) {
-      res.status(500).json({ error: "Errore nel server" });
+        // ✨ avvisa i client di rimuovere localmente questo id
+        io.to("segreteria").emit("patientRemoved", { id });
+        res.json({ message: "Paziente rimosso" });
+      } catch (err) {
+        res.status(500).json({ error: "Errore nel server" });
+      }
     }
-  });
+  );
   return router;
 }

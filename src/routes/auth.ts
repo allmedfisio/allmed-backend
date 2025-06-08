@@ -1,4 +1,5 @@
 import express from "express";
+import { Request, Response, NextFunction } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { db } from "../firebase";
@@ -23,11 +24,12 @@ router.post("/login", async (req: any, res: any) => {
     if (!validPassword)
       return res.status(401).json({ error: "Password sbagliata" });
 
-    const token = jwt.sign(
-      { id: userDoc.id, username: user.username },
-      SECRET_KEY,
-      { expiresIn: "2h" }
-    );
+    const payload = {
+      id: userDoc.id,
+      username: user.username,
+      role: user.role, // 'admin' | 'segreteria' | 'medico'
+    };
+    const token = jwt.sign(payload, SECRET_KEY, { expiresIn: "8h" });
     res.json({ token });
   } catch (err: any) {
     console.error("Login error:", err.message);
@@ -87,6 +89,18 @@ export const authenticateToken = (req: any, res: any, next: any) => {
     next();
   });
 };
+
+// Middleware di autorizzazione
+export function authorizeRoles(...allowed: string[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const role = (req as any).user?.role; // ← messo da authenticateToken
+    if (!allowed.includes(role)) {
+      res.sendStatus(403);
+      return;
+    }
+    next();
+  };
+}
 
 // Restituisce il profilo dell’utente loggato
 router.get(
