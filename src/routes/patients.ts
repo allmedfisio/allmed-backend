@@ -28,7 +28,6 @@ export function setupPatientRoutes(io: Server) {
     async (req: any, res: any) => {
       try {
         const { full_name, assigned_study, appointment_time } = req.body;
-        const numericAssignedStudy = Number(assigned_study);
         if (!full_name || !assigned_study || !appointment_time) {
           return res.status(400).json({
             error: "Nome, studio e orario appuntamento sono obbligatori",
@@ -37,7 +36,7 @@ export function setupPatientRoutes(io: Server) {
         const assigned_number = await getNextNumber();
         const newPatient = {
           full_name,
-          assigned_study: numericAssignedStudy,
+          assigned_study,
           assigned_number,
           appointment_time: appointment_time,
           status: "in_attesa",
@@ -59,6 +58,45 @@ export function setupPatientRoutes(io: Server) {
       }
     }
   );
+
+  // Bulk insert
+  router.post("/bulk", async (req, res) => {
+    try {
+      const incoming: Array<{
+        full_name: string;
+        assigned_study: number;
+        appointment_time: string;
+      }> = req.body;
+      const created = [];
+
+      for (const p of incoming) {
+        // skip duplicates
+        const dup = await patientsRef
+          .where("full_name", "==", p.full_name)
+          .where("assigned_study", "==", p.assigned_study)
+          .where("appointment_time", "==", p.appointment_time)
+          .get();
+        if (!dup.empty) continue;
+
+        // next number from existing function
+        const assigned_number = await getNextNumber();
+        const data = {
+          full_name: p.full_name,
+          assigned_study: p.assigned_study,
+          appointment_time: p.appointment_time,
+          assigned_number,
+          status: "prenotato",
+        };
+        await patientsRef.add(data);
+        created.push(data);
+      }
+
+      res.status(201).json({ created });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Bulk insert failed" });
+    }
+  });
 
   // Ottenere la lista dei pazienti
   router.get(
@@ -125,6 +163,28 @@ export function setupPatientRoutes(io: Server) {
     }
   );
 
+  // Segnala arrivo: da “prenotato” → “in_attesa”
+  router.put(
+    "/:id/arrive",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria"),
+    async (req, res): Promise<void> => {
+      const { id } = req.params;
+      try {
+        // Aggiorna lo status
+        await patientsRef.doc(id).update({ status: "in_attesa" });
+        io.emit("patientChanged", { id, status: "in_attesa" });
+
+        res.status(200).json({ id, status: "in_attesa" });
+        return;
+      } catch (err) {
+        console.error("Errore segnalazione arrivo:", err);
+        res.status(500).json({ error: "Impossibile aggiornare lo status" });
+        return;
+      }
+    }
+  );
+
   // Ottenere i pazienti di un determinato studio
   router.get(
     "/study/:studyId",
@@ -181,7 +241,8 @@ export function setupPatientRoutes(io: Server) {
         const data = req.body;
         console.log(id, data);
         await patientsRef.doc(id).update(data);
-        io.emit("patientsUpdated");
+        //io.emit("patientsChanged");
+        io.emit("patientChanged", { data });
         res.json({ message: "Paziente aggiornato con successo" });
       } catch (err) {
         res.status(500).json({ error: "Errore nel server" });
@@ -200,10 +261,35 @@ export function setupPatientRoutes(io: Server) {
         await patientsRef.doc(id).delete();
 
         // ✨ avvisa i client di rimuovere localmente questo id
-        io.to("segreteria").emit("patientRemoved", { id });
+        io.emit("patientRemoved", { id });
         res.json({ message: "Paziente rimosso" });
       } catch (err) {
         res.status(500).json({ error: "Errore nel server" });
+      }
+    }
+  );
+
+  // Rimuove tutti i pazienti dalla lista -> rotta non utilizzata per adesso
+  router.delete(
+    "/",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria"),
+    async (req: any, res: any) => {
+      try {
+        // Preleva tutti i documenti
+        const snapshot = await patientsRef.get();
+        // Batch delete (max 500 ops per batch)
+        const batch = db.batch();
+        snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+        // Notifica i client Reactivi
+        io.emit("patientsSnapshot", []);
+        return res.sendStatus(204);
+      } catch (err) {
+        console.error("Errore eliminazione pazienti:", err);
+        return res
+          .status(500)
+          .json({ error: "Impossibile eliminare i pazienti" });
       }
     }
   );

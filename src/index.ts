@@ -29,7 +29,7 @@ let latestPatients: any[] = [];
 // Definisci la query che i client dei front-end dovranno “ascoltare”
 const waitingQuery = db
   .collection("patients")
-  .where("status", "in", ["in_attesa", "in_visita"])
+  .where("status", "in", ["prenotato", "in_attesa", "in_visita"])
   .orderBy("assigned_number");
 
 // Attacca il listener
@@ -67,35 +67,6 @@ io.on("connection", (socket) => {
   socket.on("joinStudio", (studyId: string) => {
     socket.join(`studio-${studyId}`);
   });
-
-  // Quando un paziente viene aggiornato, lo notifichiamo a tutti
-  /* socket.on("updatePatients", async () => {
-        try {
-          const snapshot = await db
-            .collection("patients")
-            .where("status", "==", "in_attesa")
-            .orderBy("assigned_number")
-            .get();
-          const patients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          io.emit("patientsUpdated", patients);
-        } catch (error) {
-          console.error("Errore durante il recupero dei pazienti:", error);
-        }
-  }); */
-
-  // Quando un medico viene aggiornato, lo notifichiamo a tutti
-  /* socket.on("updateDoctors", async () => {
-  try {
-    const snapshot = await db
-      .collection("doctors")
-      .orderBy("study")
-      .get();
-    const doctors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    io.emit("doctorsUpdated", doctors);
-  } catch (error) {
-    console.error("Errore durante il recupero dei medici:", error);
-  }
-}); */
 
   socket.on("disconnect", () => {
     console.log("❌ Client disconnesso:", socket.id);

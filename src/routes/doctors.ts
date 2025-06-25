@@ -71,44 +71,46 @@ export function setupDoctorRoutes(io: Server) {
     }
   );
 
-  /* router.get("/active-doctors", authenticateToken, async (req, res) => {
-        try {
-            const doctorsSnap = await db.collection("doctors").get();
-            const patientsSnap = await db.collection("patients")
-              .where("status", "==", "in_visita")
-              .get();
-      
-            const calledPatients = patientsSnap.docs.map((doc) => doc.data());
-      
-            const doctors = doctorsSnap.docs.map((doc) => {
-              const doctor = doc.data();
-              const currentPatient = calledPatients.find(
-                (p) => p.assigned_study === doctor.study
-              );
-              return {
-                id: doc.id,
-                name: doctor.name,
-                study: doctor.study,
-                current_patient: currentPatient?.full_name || null,
-              };
-            });
-            res.json(doctors);
-        } catch (err) {
-            res.status(500).json({ error: "Errore nel server" });
-        }
-    }); */
-
   // Rimuovere un medico dalla lista
   router.delete(
     "/:id",
     authenticateToken,
     authorizeRoles("admin", "segreteria"),
-    async (req, res) => {
+    async (req: any, res: any) => {
+      const { id } = req.params;
       try {
-        const { id } = req.params;
+        // Recupera il dottore per estrarne lo study
+        const docSnap = await db.collection("doctors").doc(id).get();
+        if (!docSnap.exists) {
+          return res.status(404).json({ error: "Medico non trovato" });
+        }
+        const { study } = docSnap.data()!;
+
+        // Cancella il medico
         await db.collection("doctors").doc(id).delete();
+
+        // Trova e cancella il paziente in_visita di quello studio
+        const patientsRef = db.collection("patients");
+        const inVisitaSnap = await patientsRef
+          .where("assigned_study", "==", study)
+          .where("status", "==", "in_visita")
+          .get();
+        if (!inVisitaSnap.empty) {
+          const batch = db.batch();
+          inVisitaSnap.docs.forEach((pDoc) => {
+            batch.delete(pDoc.ref);
+
+            // Notifica il client della rimozione
+            io.emit("patientRemoved", { id: pDoc.id });
+          });
+          await batch.commit();
+        }
+
+        // Aggiorna i client sui medici
+        io.emit("doctorsUpdated");
         res.json({ message: "Medico rimosso" });
       } catch (err) {
+        console.error("Errore removendo medico e paziente:", err);
         res.status(500).json({ error: "Errore nel server" });
       }
     }
