@@ -27,10 +27,12 @@ export function setupPatientRoutes(io: Server) {
     authorizeRoles("admin", "segreteria"),
     async (req: any, res: any) => {
       try {
-        const { full_name, assigned_study, appointment_time } = req.body;
-        if (!full_name || !assigned_study || !appointment_time) {
+        const { full_name, assigned_study, appointment_time, status } =
+          req.body;
+        if (!full_name || !assigned_study || !appointment_time || !status) {
           return res.status(400).json({
-            error: "Nome, studio e orario appuntamento sono obbligatori",
+            error:
+              "Nome, studio, orario appuntamento e status sono obbligatori",
           });
         }
         const assigned_number = await getNextNumber();
@@ -39,7 +41,7 @@ export function setupPatientRoutes(io: Server) {
           assigned_study,
           assigned_number,
           appointment_time: appointment_time,
-          status: "in_attesa",
+          status,
         };
         const docRef = await patientsRef.add(newPatient);
 
