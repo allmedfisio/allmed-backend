@@ -35,7 +35,7 @@ export function setupDoctorRoutes(io: Server) {
   router.get(
     "/active-doctors",
     authenticateToken,
-    authorizeRoles("admin", "segreteria", "medico"),
+    authorizeRoles("admin", "segreteria", "medico", "sala-attesa"),
     async (req, res) => {
       try {
         const doctorsSnap = await db.collection("doctors").get();
