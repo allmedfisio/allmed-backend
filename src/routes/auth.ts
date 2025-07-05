@@ -29,7 +29,7 @@ router.post("/login", async (req: any, res: any) => {
       username: user.username,
       role: user.role, // 'admin' | 'segreteria' | 'medico'
     };
-    const token = jwt.sign(payload, SECRET_KEY, { expiresIn: "8h" });
+    const token = jwt.sign(payload, SECRET_KEY, { expiresIn: "12h" });
     res.json({ token });
   } catch (err: any) {
     console.error("Login error:", err.message);
