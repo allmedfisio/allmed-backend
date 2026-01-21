@@ -79,20 +79,13 @@ export function setupDoctorRoutes(io: Server) {
     async (req: any, res: any) => {
       const { id } = req.params;
       try {
-        // Recupera il dottore per estrarne lo study
-        const docSnap = await db.collection("doctors").doc(id).get();
-        if (!docSnap.exists) {
-          return res.status(404).json({ error: "Medico non trovato" });
-        }
-        const { study } = docSnap.data()!;
-
         // Cancella il medico
         await db.collection("doctors").doc(id).delete();
 
-        // Trova e cancella il paziente in_visita di quello studio
+        // Trova e cancella i pazienti in_visita assegnati a questo medico
         const patientsRef = db.collection("patients");
         const inVisitaSnap = await patientsRef
-          .where("assigned_study", "==", study)
+          .where("assigned_doctor", "==", id)
           .where("status", "==", "in_visita")
           .get();
         if (!inVisitaSnap.empty) {
@@ -111,6 +104,59 @@ export function setupDoctorRoutes(io: Server) {
         res.json({ message: "Medico rimosso" });
       } catch (err) {
         console.error("Errore removendo medico e paziente:", err);
+        res.status(500).json({ error: "Errore nel server" });
+      }
+    }
+  );
+
+  // ========== DOCTOR-LIST Routes ==========
+  
+  // Ottenere la lista di tutti i nomi dei medici disponibili
+  router.get(
+    "/doctor-list",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria"),
+    async (req, res) => {
+      try {
+        const doctorListSnap = await db.collection("doctor-list").get();
+        const doctorNames = doctorListSnap.docs.map((doc) => doc.data().name);
+        // Ordina alfabeticamente
+        doctorNames.sort();
+        res.json(doctorNames);
+      } catch (err) {
+        console.error("Errore recuperando doctor-list:", err);
+        res.status(500).json({ error: "Errore nel server" });
+      }
+    }
+  );
+
+  // Aggiungere un nuovo nome alla lista dei medici disponibili
+  router.post(
+    "/doctor-list",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria"),
+    async (req: any, res: any) => {
+      try {
+        const { name } = req.body;
+        if (!name) {
+          return res.status(400).json({ error: "Nome è obbligatorio" });
+        }
+
+        // Verifica se il nome esiste già
+        const existingSnap = await db
+          .collection("doctor-list")
+          .where("name", "==", name)
+          .get();
+        
+        if (!existingSnap.empty) {
+          return res.status(400).json({ error: "Nome già presente nella lista" });
+        }
+
+        // Aggiungi il nuovo nome
+        await db.collection("doctor-list").add({ name });
+        res.json({ message: "Nome aggiunto alla lista", name });
+      } catch (err) {
+        console.error("Errore aggiungendo nome a doctor-list:", err);
         res.status(500).json({ error: "Errore nel server" });
       }
     }

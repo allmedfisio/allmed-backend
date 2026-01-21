@@ -2,6 +2,7 @@ import express from "express";
 import { Server } from "socket.io";
 import { authenticateToken, authorizeRoles } from "./auth";
 import { db } from "../firebase";
+import { bucket } from "../firebase";
 
 const router = express.Router();
 
@@ -27,18 +28,33 @@ export function setupPatientRoutes(io: Server) {
     authorizeRoles("admin", "segreteria"),
     async (req: any, res: any) => {
       try {
-        const { full_name, assigned_study, appointment_time, status } =
+        const { full_name, assigned_doctor, appointment_time, status } =
           req.body;
-        if (!full_name || !assigned_study || !appointment_time || !status) {
+        if (!full_name || !assigned_doctor || !appointment_time || !status) {
           return res.status(400).json({
             error:
-              "Nome, studio, orario appuntamento e status sono obbligatori",
+              "Nome, medico, orario appuntamento e status sono obbligatori",
           });
         }
+
+        // Verifica se il medico esiste, altrimenti crealo (se assigned_doctor è un ID valido)
+        let doctorDoc = await db
+          .collection("doctors")
+          .doc(assigned_doctor)
+          .get();
+        if (!doctorDoc.exists) {
+          // Il medico non esiste - non possiamo crearlo senza nome e studio
+          // Quindi restituiamo un errore o assumiamo che assigned_doctor sia sempre un ID valido
+          // Per ora, se non esiste, non lo creiamo automaticamente (richiederebbe più dati)
+          console.warn(
+            `Medico ${assigned_doctor} non trovato ma paziente viene creato comunque`,
+          );
+        }
+
         const assigned_number = await getNextNumber();
         const newPatient = {
           full_name,
-          assigned_study,
+          assigned_doctor,
           assigned_number,
           appointment_time: appointment_time,
           status,
@@ -49,7 +65,7 @@ export function setupPatientRoutes(io: Server) {
         io.emit("patientChanged", {
           id: docRef.id,
           full_name: newPatient.full_name,
-          assigned_study: newPatient.assigned_study,
+          assigned_doctor: newPatient.assigned_doctor,
           assigned_number: newPatient.assigned_number,
           appointment_time: newPatient.appointment_time,
           status: newPatient.status,
@@ -58,7 +74,7 @@ export function setupPatientRoutes(io: Server) {
       } catch (err) {
         res.status(500).json({ error: "Errore nel server" });
       }
-    }
+    },
   );
 
   // Bulk insert
@@ -66,16 +82,20 @@ export function setupPatientRoutes(io: Server) {
     try {
       const incoming: Array<{
         full_name: string;
-        assigned_study: number;
+        assigned_doctor?: string; // può essere ID o nome del medico
         appointment_time: string;
+        status?: string;
       }> = req.body;
       const created = [];
 
       for (const p of incoming) {
-        // skip duplicates
+        if (!p.full_name || !p.appointment_time) {
+          continue; // skip invalid entries
+        }
+
+        // skip duplicates - controlla per full_name e appointment_time
         const dup = await patientsRef
           .where("full_name", "==", p.full_name)
-          .where("assigned_study", "==", p.assigned_study)
           .where("appointment_time", "==", p.appointment_time)
           .get();
         if (!dup.empty) continue;
@@ -84,13 +104,24 @@ export function setupPatientRoutes(io: Server) {
         const assigned_number = await getNextNumber();
         const data = {
           full_name: p.full_name,
-          assigned_study: p.assigned_study,
+          assigned_doctor: p.assigned_doctor || null, // può essere stringa (nome) o null
           appointment_time: p.appointment_time,
           assigned_number,
-          status: "prenotato",
+          status: p.status || "prenotato",
         };
-        await patientsRef.add(data);
-        created.push(data);
+        const docRef = await patientsRef.add(data);
+
+        // Notifica il frontend del nuovo paziente
+        io.emit("patientChanged", {
+          id: docRef.id,
+          full_name: data.full_name,
+          assigned_doctor: data.assigned_doctor,
+          assigned_number: data.assigned_number,
+          appointment_time: data.appointment_time,
+          status: data.status,
+        });
+
+        created.push({ id: docRef.id, ...data });
       }
 
       res.status(201).json({ created });
@@ -117,7 +148,7 @@ export function setupPatientRoutes(io: Server) {
       } catch (err) {
         res.status(500).json({ error: "Errore nel server" });
       }
-    }
+    },
   );
 
   router.put(
@@ -134,10 +165,14 @@ export function setupPatientRoutes(io: Server) {
           res.status(404).json({ error: "Paziente non trovato" });
           return;
         }
-        const { assigned_study } = patientSnap.data()!;
-        // Trova eventuali pazienti già in visita per questo stesso studio
+        const { assigned_doctor } = patientSnap.data()!;
+        if (!assigned_doctor) {
+          res.status(400).json({ error: "Paziente senza medico assegnato" });
+          return;
+        }
+        // Trova eventuali pazienti già in visita per questo stesso medico
         const prevSnap = await patientsRef
-          .where("assigned_study", "==", assigned_study)
+          .where("assigned_doctor", "==", assigned_doctor)
           .where("status", "==", "in_visita")
           .get();
 
@@ -162,7 +197,7 @@ export function setupPatientRoutes(io: Server) {
         res.status(500).json({ error: "Errore del server" });
         return;
       }
-    }
+    },
   );
 
   // Segnala arrivo: da “prenotato” → “in_attesa”
@@ -184,20 +219,20 @@ export function setupPatientRoutes(io: Server) {
         res.status(500).json({ error: "Impossibile aggiornare lo status" });
         return;
       }
-    }
+    },
   );
 
-  // Ottenere i pazienti di un determinato studio
+  // Ottenere i pazienti di un determinato medico
   router.get(
-    "/study/:studyId",
+    "/doctor/:doctorId",
     authenticateToken,
     authorizeRoles("admin", "segreteria", "medico"),
     async (req, res) => {
-      const { studyId } = req.params;
+      const { doctorId } = req.params;
       try {
         // Ottiene paziente in visita
         const currentSnapshot = await patientsRef
-          .where("assigned_study", "==", studyId)
+          .where("assigned_doctor", "==", doctorId)
           .where("status", "==", "in_visita")
           .limit(1)
           .get();
@@ -211,7 +246,7 @@ export function setupPatientRoutes(io: Server) {
 
         // Ottiene il prossimo paziente in attesa ordinato per appointment_time
         const nextSnapshot = await patientsRef
-          .where("assigned_study", "==", studyId)
+          .where("assigned_doctor", "==", doctorId)
           .where("status", "==", "in_attesa")
           .orderBy("appointment_time")
           .limit(1)
@@ -229,7 +264,19 @@ export function setupPatientRoutes(io: Server) {
         console.error("Errore nel recupero pazienti:", err);
         res.status(500).json({ error: "Errore del server" });
       }
-    }
+    },
+  );
+
+  // Manteniamo la route /study/:studyId per retrocompatibilità, ma deprecata
+  router.get(
+    "/study/:studyId",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria", "medico"),
+    async (req, res) => {
+      res
+        .status(410)
+        .json({ error: "Route deprecata. Usare /doctor/:doctorId" });
+    },
   );
 
   // Modificare un paziente
@@ -249,7 +296,7 @@ export function setupPatientRoutes(io: Server) {
       } catch (err) {
         res.status(500).json({ error: "Errore nel server" });
       }
-    }
+    },
   );
 
   // Rimuovere un paziente dalla lista
@@ -268,7 +315,7 @@ export function setupPatientRoutes(io: Server) {
       } catch (err) {
         res.status(500).json({ error: "Errore nel server" });
       }
-    }
+    },
   );
 
   // Rimuove tutti i pazienti dalla lista -> rotta non utilizzata per adesso
@@ -293,7 +340,7 @@ export function setupPatientRoutes(io: Server) {
           .status(500)
           .json({ error: "Impossibile eliminare i pazienti" });
       }
-    }
+    },
   );
   return router;
 }
