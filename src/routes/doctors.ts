@@ -28,7 +28,7 @@ export function setupDoctorRoutes(io: Server) {
       } catch (err) {
         res.status(500).json({ error: "Errore nel server" });
       }
-    }
+    },
   );
 
   // Ottenere i medici attivi e il loro ultimo paziente chiamato
@@ -47,7 +47,7 @@ export function setupDoctorRoutes(io: Server) {
       } catch (err) {
         res.status(500).json({ error: "Errore nel server" });
       }
-    }
+    },
   );
 
   //Aggiornare ultimo paziente chiamato del medico
@@ -68,7 +68,7 @@ export function setupDoctorRoutes(io: Server) {
       } catch (err) {
         res.status(500).json({ error: "Errore nel server" });
       }
-    }
+    },
   );
 
   // Rimuovere un medico dalla lista
@@ -82,19 +82,19 @@ export function setupDoctorRoutes(io: Server) {
         // Cancella il medico
         await db.collection("doctors").doc(id).delete();
 
-        // Trova e cancella i pazienti in_visita assegnati a questo medico
+        // Trova e imposta a "completato" i pazienti in_visita assegnati a questo medico
         const patientsRef = db.collection("patients");
         const inVisitaSnap = await patientsRef
-          .where("assigned_doctor", "==", id)
+          .where("assigned_doctor_id", "==", id)
           .where("status", "==", "in_visita")
           .get();
         if (!inVisitaSnap.empty) {
           const batch = db.batch();
           inVisitaSnap.docs.forEach((pDoc) => {
-            batch.delete(pDoc.ref);
+            batch.update(pDoc.ref, { status: "completato" });
 
-            // Notifica il client della rimozione
-            io.emit("patientRemoved", { id: pDoc.id });
+            // Notifica il client del cambio di status
+            io.emit("patientChanged", { id: pDoc.id, status: "completato" });
           });
           await batch.commit();
         }
@@ -106,11 +106,63 @@ export function setupDoctorRoutes(io: Server) {
         console.error("Errore removendo medico e paziente:", err);
         res.status(500).json({ error: "Errore nel server" });
       }
-    }
+    },
   );
 
   // ========== DOCTOR-LIST Routes ==========
-  
+
+  // Ottenere TUTTI i medici con i loro dati (sia attivi che non)
+  router.get(
+    "/all-doctors",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria"),
+    async (req, res) => {
+      try {
+        // Ottieni la lista master (doctor-list)
+        const doctorListSnap = await db.collection("doctor-list").get();
+        const doctorNames = doctorListSnap.docs.map((doc) => doc.data().name);
+
+        // Ottieni i medici dalla collection doctors
+        const doctorsSnap = await db.collection("doctors").get();
+        const doctorsData = doctorsSnap.docs.reduce((acc: any, doc: any) => {
+          acc[doc.data().name] = { id: doc.id, ...doc.data() };
+          return acc;
+        }, {});
+
+        // Combina: per ogni nome in doctor-list, usa i dati da doctors se disponibili
+        const allDoctors = doctorNames.map((name: string) => {
+          if (doctorsData[name]) {
+            return doctorsData[name];
+          } else {
+            // Se il nome è in doctor-list ma non in doctors, crea un record minimo
+            return { id: `temp-${name}`, name, study: "N/A" };
+          }
+        });
+
+        // Funzione per estrarre il cognome (primo token dopo aver rimosso i prefissi come "Dott.", "Dott.ssa", "D.O.")
+        const extractLastName = (fullName: string): string => {
+          const cleanName = fullName
+            .replace(/^(Dott\.|Dott\.ssa|D\.O\.)\s*/i, "")
+            .trim();
+          const parts = cleanName.split(/\s+/);
+          return parts[0].toLowerCase(); // Primo token = cognome
+        };
+
+        // Ordina per cognome
+        allDoctors.sort((a, b) => {
+          const lastNameA = extractLastName(a.name);
+          const lastNameB = extractLastName(b.name);
+          return lastNameA.localeCompare(lastNameB, "it");
+        });
+
+        res.json(allDoctors);
+      } catch (err) {
+        console.error("Errore recuperando all-doctors:", err);
+        res.status(500).json({ error: "Errore nel server" });
+      }
+    },
+  );
+
   // Ottenere la lista di tutti i nomi dei medici disponibili
   router.get(
     "/doctor-list",
@@ -127,7 +179,7 @@ export function setupDoctorRoutes(io: Server) {
         console.error("Errore recuperando doctor-list:", err);
         res.status(500).json({ error: "Errore nel server" });
       }
-    }
+    },
   );
 
   // Aggiungere un nuovo nome alla lista dei medici disponibili
@@ -147,9 +199,11 @@ export function setupDoctorRoutes(io: Server) {
           .collection("doctor-list")
           .where("name", "==", name)
           .get();
-        
+
         if (!existingSnap.empty) {
-          return res.status(400).json({ error: "Nome già presente nella lista" });
+          return res
+            .status(400)
+            .json({ error: "Nome già presente nella lista" });
         }
 
         // Aggiungi il nuovo nome
@@ -159,7 +213,7 @@ export function setupDoctorRoutes(io: Server) {
         console.error("Errore aggiungendo nome a doctor-list:", err);
         res.status(500).json({ error: "Errore nel server" });
       }
-    }
+    },
   );
 
   return router;

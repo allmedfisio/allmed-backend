@@ -29,7 +29,13 @@ let latestPatients: any[] = [];
 // Definisci la query che i client dei front-end dovranno “ascoltare”
 const waitingQuery = db
   .collection("patients")
-  .where("status", "in", ["prenotato", "in_attesa", "in_visita"])
+  .where("status", "in", [
+    "prenotato",
+    "in_attesa",
+    "in_visita",
+    "completato",
+    "in_archivio",
+  ])
   .orderBy("assigned_number");
 
 // Attacca il listener
