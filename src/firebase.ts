@@ -1,14 +1,24 @@
 import * as dotenv from "dotenv";
 import admin from "firebase-admin";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
+import path from "path";
 
-// Carica subito le variabili d’ambiente
+// Carica subito le variabili d'ambiente
 dotenv.config();
+
 let serviceAccount: any;
-if (process.env.SERVICE_ACCOUNT_JSON) {
+
+// 1) Preferisci file JSON (evita problemi di encoding delle env var su Render)
+const keyFilePath = path.resolve(__dirname, "..", "firebase-key.json");
+if (existsSync(keyFilePath)) {
+  console.log("📄 Carico credenziali da file:", keyFilePath);
+  serviceAccount = JSON.parse(readFileSync(keyFilePath, "utf8"));
+} else if (process.env.SERVICE_ACCOUNT_JSON) {
+  console.log("🌍 Carico credenziali da SERVICE_ACCOUNT_JSON");
   serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_JSON);
 } else {
-  serviceAccount = JSON.parse(readFileSync("./firebase-key.json", "utf8"));
+  console.error("❌ Nessuna credenziale Firebase trovata!");
+  process.exit(1);
 }
 
 if (!admin.apps.length) {
@@ -17,13 +27,18 @@ if (!admin.apps.length) {
   console.log("   client_email:", serviceAccount.client_email);
   console.log("   private_key_id:", serviceAccount.private_key_id);
   console.log("   private_key presente:", !!serviceAccount.private_key);
+
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
   });
+
   console.log("✅ Firebase inizializzato con successo!");
 } else {
-  console.log("⚠️ Firebase app già inizializzata");
+  console.warn(
+    "⚠️  Firebase già inizializzato (probabilmente da FIREBASE_CONFIG).",
+    "   Se il login fallisce, rimuovi la variabile FIREBASE_CONFIG da Render!"
+  );
 }
 
 export const db = admin.firestore();

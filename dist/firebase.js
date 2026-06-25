@@ -40,14 +40,23 @@ exports.bucket = exports.db = void 0;
 const dotenv = __importStar(require("dotenv"));
 const firebase_admin_1 = __importDefault(require("firebase-admin"));
 const fs_1 = require("fs");
-// Carica subito le variabili d’ambiente
+const path_1 = __importDefault(require("path"));
+// Carica subito le variabili d'ambiente
 dotenv.config();
 let serviceAccount;
-if (process.env.SERVICE_ACCOUNT_JSON) {
+// 1) Preferisci file JSON (evita problemi di encoding delle env var su Render)
+const keyFilePath = path_1.default.resolve(__dirname, "..", "firebase-key.json");
+if ((0, fs_1.existsSync)(keyFilePath)) {
+    console.log("📄 Carico credenziali da file:", keyFilePath);
+    serviceAccount = JSON.parse((0, fs_1.readFileSync)(keyFilePath, "utf8"));
+}
+else if (process.env.SERVICE_ACCOUNT_JSON) {
+    console.log("🌍 Carico credenziali da SERVICE_ACCOUNT_JSON");
     serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_JSON);
 }
 else {
-    serviceAccount = JSON.parse((0, fs_1.readFileSync)("./firebase-key.json", "utf8"));
+    console.error("❌ Nessuna credenziale Firebase trovata!");
+    process.exit(1);
 }
 if (!firebase_admin_1.default.apps.length) {
     console.log("🚀 Inizializzo Firebase Admin SDK...");
@@ -62,7 +71,7 @@ if (!firebase_admin_1.default.apps.length) {
     console.log("✅ Firebase inizializzato con successo!");
 }
 else {
-    console.log("⚠️ Firebase app già inizializzata");
+    console.warn("⚠️  Firebase già inizializzato (probabilmente da FIREBASE_CONFIG).", "   Se il login fallisce, rimuovi la variabile FIREBASE_CONFIG da Render!");
 }
 exports.db = firebase_admin_1.default.firestore();
 exports.bucket = firebase_admin_1.default.storage().bucket();
