@@ -44,18 +44,30 @@ const path_1 = __importDefault(require("path"));
 // Carica subito le variabili d'ambiente
 dotenv.config();
 let serviceAccount;
-// 1) Preferisci file JSON (ora contiene la chiave valida, niente encoding)
-const keyFilePath = path_1.default.resolve(__dirname, "..", "firebase-key.json");
-if ((0, fs_1.existsSync)(keyFilePath)) {
-    console.log("📄 Carico credenziali da file:", keyFilePath);
-    serviceAccount = JSON.parse((0, fs_1.readFileSync)(keyFilePath, "utf8"));
+// Ordine di caricamento credenziali:
+//  1) Secret File su Render  → /etc/secrets/firebase-key.json
+//  2) File locale (dev)      → firebase-key.json
+//  3) Variabile d'ambiente   → SERVICE_ACCOUNT_JSON
+const secretPath = "/etc/secrets/firebase-key.json";
+const localPath = path_1.default.resolve(__dirname, "..", "firebase-key.json");
+let loaded = false;
+for (const filePath of [secretPath, localPath]) {
+    if ((0, fs_1.existsSync)(filePath)) {
+        console.log("📄 Carico credenziali da:", filePath);
+        serviceAccount = JSON.parse((0, fs_1.readFileSync)(filePath, "utf8"));
+        loaded = true;
+        break;
+    }
 }
-else if (process.env.SERVICE_ACCOUNT_JSON) {
+if (!loaded && process.env.SERVICE_ACCOUNT_JSON) {
     console.log("🌍 Carico credenziali da SERVICE_ACCOUNT_JSON");
     serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_JSON);
+    loaded = true;
 }
-else {
-    console.error("❌ Nessuna credenziale Firebase trovata!");
+if (!loaded) {
+    console.error("❌ Nessuna credenziale Firebase trovata!\n" +
+        "   Su Render: crea un Secret File chiamato firebase-key.json\n" +
+        "   In locale: metti firebase-key.json nella root del progetto");
     process.exit(1);
 }
 if (!firebase_admin_1.default.apps.length) {
