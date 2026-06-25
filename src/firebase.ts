@@ -8,7 +8,7 @@ dotenv.config();
 
 let serviceAccount: any;
 
-// 1) Preferisci file JSON (evita problemi di encoding delle env var su Render)
+// 1) Preferisci file JSON (ora contiene la chiave valida, niente encoding)
 const keyFilePath = path.resolve(__dirname, "..", "firebase-key.json");
 if (existsSync(keyFilePath)) {
   console.log("📄 Carico credenziali da file:", keyFilePath);
