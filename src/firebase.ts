@@ -13,6 +13,10 @@ if (process.env.SERVICE_ACCOUNT_JSON) {
 
 if (!admin.apps.length) {
   console.log("🚀 Inizializzo Firebase Admin SDK...");
+  console.log("   project_id:", serviceAccount.project_id);
+  console.log("   client_email:", serviceAccount.client_email);
+  console.log("   private_key_id:", serviceAccount.private_key_id);
+  console.log("   private_key presente:", !!serviceAccount.private_key);
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET,

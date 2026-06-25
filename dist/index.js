@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -15,37 +6,73 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
-const db_1 = require("./db");
 const http_1 = require("http");
 const socket_io_1 = require("socket.io");
 const patients_1 = require("./routes/patients");
 const doctors_1 = require("./routes/doctors");
+const ping_1 = require("./routes/ping");
 const auth_1 = __importDefault(require("./routes/auth"));
+const firebase_1 = require("./firebase");
+const ticket_1 = require("./routes/ticket");
+const business_analytics_1 = require("./routes/business-analytics");
+const professional_compensations_1 = require("./routes/professional-compensations");
+const whatsapp_1 = require("./routes/whatsapp");
+const path_1 = __importDefault(require("path"));
 dotenv_1.default.config();
 const app = (0, express_1.default)();
-app.use((0, cors_1.default)());
-app.use(express_1.default.json());
+app.use((0, cors_1.default)({ origin: true, credentials: true }));
+app.use(express_1.default.json({ limit: "20mb" }));
+app.use(express_1.default.urlencoded({ extended: true, limit: "20mb" }));
+app.use("/uploads", express_1.default.static(path_1.default.join(__dirname, "uploads")));
 // Creiamo il server HTTP e WebSocket
 const httpServer = (0, http_1.createServer)(app);
 const io = new socket_io_1.Server(httpServer, {
-    cors: { origin: "*" }
+    cors: { origin: "*" },
+});
+let latestPatients = [];
+// Definisci la query che i client dei front-end dovranno “ascoltare”
+const waitingQuery = firebase_1.db
+    .collection("patients")
+    .where("status", "in", [
+    "prenotato",
+    "in_attesa",
+    "in_visita",
+    "completato",
+    "in_archivio",
+])
+    .orderBy("assigned_number");
+// Attacca il listener
+waitingQuery.onSnapshot((snapshot) => {
+    const list = snapshot.docs.map((d) => (Object.assign({ id: d.id }, d.data())));
+    latestPatients = list;
+    // emetti solo alla “stanza” segreteria (così non svegli gli studi)
+    io.to("segreteria").emit("patientsSnapshot", list);
 });
 app.use("/patients", (0, patients_1.setupPatientRoutes)(io));
 app.use("/doctors", (0, doctors_1.setupDoctorRoutes)(io));
 app.use("/auth", auth_1.default);
+app.use("/ticket", (0, ticket_1.setupTicketRoutes)(io));
+app.use("/business-analytics", (0, business_analytics_1.setupBusinessAnalyticsRoutes)());
+app.use("/professional-compensations", (0, professional_compensations_1.setupCompensationsRoutes)());
+app.use("/whatsapp", (0, whatsapp_1.setupWhatsappRoutes)());
+app.use("/ping", (0, ping_1.setupPingRoutes)(io));
 // Evento WebSocket quando un client si connette
 io.on("connection", (socket) => {
     console.log("🔗 Client connesso:", socket.id);
-    // Quando un paziente viene aggiornato, lo notifichiamo a tutti
-    socket.on("updatePatients", () => __awaiter(void 0, void 0, void 0, function* () {
-        const result = yield db_1.pool.query("SELECT * FROM patients WHERE status = 'in_attesa' ORDER BY assigned_number");
-        io.emit("patientsUpdated", result.rows);
-    }));
-    // Quando un medico viene aggiornato, lo notifichiamo a tutti
-    socket.on("updateDoctors", () => __awaiter(void 0, void 0, void 0, function* () {
-        const result = yield db_1.pool.query("SELECT * FROM doctors ORDER BY study");
-        io.emit("doctorsUpdated", result.rows);
-    }));
+    // il client segreteria chiederà di unirsi a questa stanza
+    socket.on("joinSegreteria", () => {
+        socket.join("segreteria");
+        //invia subito l’ultimo snapshot anche a chi arriva adesso
+        socket.emit("patientsSnapshot", latestPatients);
+    });
+    // il client sala d’attesa chiederà di unirsi a questa stanza
+    socket.on("joinSala", () => {
+        socket.join("sala-attesa");
+    });
+    // il client medico chiederà di unirsi alla stanza del suo studio
+    socket.on("joinStudio", (studyId) => {
+        socket.join(`studio-${studyId}`);
+    });
     socket.on("disconnect", () => {
         console.log("❌ Client disconnesso:", socket.id);
     });
@@ -53,20 +80,5 @@ io.on("connection", (socket) => {
 // Avvio del server
 const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT, () => {
-    console.log(`🚀 Server WebSocket attivo su http://localhost:${PORT}`);
+    console.log(`🚀 Server WebSocket attivo sulla porta ${PORT}`);
 });
-/*pool.connect()
-  .then(() => {
-    console.log("Database connesso con successo");
-  })
-  .catch((err) => {
-    console.error("Errore nella connessione al database:", err);
-  });
-
-app.get("/", (req, res) => {
-    res.send("AllMed Manager API is running!");
-});
-
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-}); */

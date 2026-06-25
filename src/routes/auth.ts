@@ -1,6 +1,6 @@
 import express from "express";
 import { Request, Response, NextFunction } from "express";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { db } from "../firebase";
 import * as admin from "firebase-admin";
@@ -34,7 +34,11 @@ router.post("/login", async (req: any, res: any) => {
   } catch (err: any) {
     console.error("Login error:", err.message);
     console.error(err.stack);
-    res.status(500).json({ error: "Errore nel server" });
+    const detail =
+      err.code !== undefined
+        ? `[${err.code}] ${err.message}`
+        : err.message || "Errore sconosciuto";
+    res.status(500).json({ error: "Errore nel server", detail });
   }
 });
 
