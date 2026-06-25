@@ -182,6 +182,28 @@ export function setupDoctorRoutes(io: Server) {
     },
   );
 
+  // Ottenere la lista di tutti i nomi dei medici con le rispettive branche
+  router.get(
+    "/doctor-list-branches",
+    authenticateToken,
+    authorizeRoles("admin", "segreteria"),
+    async (req, res) => {
+      try {
+        const doctorListSnap = await db.collection("doctor-list").get();
+        const doctors = doctorListSnap.docs.map((doc) => ({
+          name: doc.data().name,
+          branch: doc.data().branch || null,
+        }));
+        // Ordina per nome
+        doctors.sort((a, b) => a.name.localeCompare(b.name, "it"));
+        res.json(doctors);
+      } catch (err) {
+        console.error("Errore recuperando doctor-list-branches:", err);
+        res.status(500).json({ error: "Errore nel server" });
+      }
+    },
+  );
+
   // Aggiungere un nuovo nome alla lista dei medici disponibili
   router.post(
     "/doctor-list",

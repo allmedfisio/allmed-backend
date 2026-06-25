@@ -9,13 +9,17 @@ import { setupPingRoutes } from "./routes/ping";
 import authRoutes from "./routes/auth";
 import { db } from "./firebase";
 import { setupTicketRoutes } from "./routes/ticket";
+import { setupBusinessAnalyticsRoutes } from "./routes/business-analytics";
+import { setupCompensationsRoutes } from "./routes/professional-compensations";
+import { setupWhatsappRoutes } from "./routes/whatsapp";
 import path from "path";
 
 dotenv.config();
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: "20mb" }));
+app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Creiamo il server HTTP e WebSocket
@@ -51,6 +55,9 @@ app.use("/patients", setupPatientRoutes(io));
 app.use("/doctors", setupDoctorRoutes(io));
 app.use("/auth", authRoutes);
 app.use("/ticket", setupTicketRoutes(io));
+app.use("/business-analytics", setupBusinessAnalyticsRoutes());
+app.use("/professional-compensations", setupCompensationsRoutes());
+app.use("/whatsapp", setupWhatsappRoutes());
 app.use("/ping", setupPingRoutes(io));
 
 // Evento WebSocket quando un client si connette
