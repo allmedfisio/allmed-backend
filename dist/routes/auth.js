@@ -54,56 +54,40 @@ const firebase_1 = require("../firebase");
 const admin = __importStar(require("firebase-admin"));
 const router = express_1.default.Router();
 const SECRET_KEY = process.env.JWT_SECRET_KEY;
-// Helper: esegue una promise con timeout
+// Helper: esegue una promise con timeout (protegge da query Firestore bloccate)
 function withTimeout(promise, ms, label) {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
-            console.error(`[TIMEOUT] TIMEOUT dopo ${ms}ms su: ${label}`);
+            console.error(`[TIMEOUT] ${label} dopo ${ms}ms`);
             reject(new Error(`Timeout dopo ${ms}ms su ${label}`));
         }, ms);
         promise
-            .then((val) => {
-            clearTimeout(timer);
-            resolve(val);
-        })
-            .catch((err) => {
-            clearTimeout(timer);
-            reject(err);
-        });
+            .then((val) => { clearTimeout(timer); resolve(val); })
+            .catch((err) => { clearTimeout(timer); reject(err); });
     });
 }
 // Endpoint di login
 router.post("/login", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { username, password } = req.body;
-    console.log("[LOGIN] Tentativo di login per:", username);
-    console.log("[LOGIN] JWT_SECRET_KEY presente:", !!SECRET_KEY);
     try {
-        console.log("[LOGIN] Eseguo query Firestore su collection 'admins'...");
-        const t0 = Date.now();
-        const snapshot = yield withTimeout(firebase_1.db
-            .collection("admins")
-            .where("username", "==", username)
-            .get(), 15000, "Firestore query admins");
-        console.log(`[LOGIN] Query completata in ${Date.now() - t0}ms, documenti trovati: ${snapshot.size}`);
+        const snapshot = yield withTimeout(firebase_1.db.collection("admins").where("username", "==", username).get(), 15000, "Firestore query admins");
         if (snapshot.empty)
             return res.status(401).json({ error: "Nessun utente" });
         const userDoc = snapshot.docs[0];
         const user = userDoc.data();
-        console.log("[LOGIN] Utente trovato, verifico password...");
         const validPassword = yield bcryptjs_1.default.compare(password, user.password);
         if (!validPassword)
             return res.status(401).json({ error: "Password sbagliata" });
         const payload = {
             id: userDoc.id,
             username: user.username,
-            role: user.role, // 'admin' | 'segreteria' | 'medico'
+            role: user.role,
         };
         const token = jsonwebtoken_1.default.sign(payload, SECRET_KEY, { expiresIn: "12h" });
-        console.log("[LOGIN] Login riuscito per:", username);
         res.json({ token });
     }
     catch (err) {
-        console.error("[LOGIN] ERRORE:", err.message);
+        console.error("Login error:", err.message);
         console.error(err.stack);
         const detail = err.code !== undefined
             ? `[${err.code}] ${err.message}`

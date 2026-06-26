@@ -43,19 +43,15 @@ const waitingQuery = db
   .orderBy("assigned_number");
 
 // Attacca il listener
-console.log("[LISTENER] Avvio onSnapshot su collection 'patients'...");
-const unsubscribe = waitingQuery.onSnapshot(
+waitingQuery.onSnapshot(
   (snapshot) => {
     const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
     latestPatients = list;
-    console.log("[LISTENER] onSnapshot patients: " + list.length + " documenti ricevuti");
-    // emetti solo alla stanza segreteria (cosi' non svegli gli studi)
     io.to("segreteria").emit("patientsSnapshot", list);
   },
   (err) => {
-    console.error("[LISTENER] ERRORE onSnapshot patients:", err.message);
-    console.error("   code:", (err as any).code);
-    console.error("   stack:", (err as any).stack);
+    console.error("[onSnapshot] Errore listener patients:", err.message);
+    console.error("  code:", (err as any).code);
   }
 );
 

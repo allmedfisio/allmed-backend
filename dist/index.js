@@ -42,17 +42,13 @@ const waitingQuery = firebase_1.db
 ])
     .orderBy("assigned_number");
 // Attacca il listener
-console.log("[LISTENER] Avvio onSnapshot su collection 'patients'...");
-const unsubscribe = waitingQuery.onSnapshot((snapshot) => {
+waitingQuery.onSnapshot((snapshot) => {
     const list = snapshot.docs.map((d) => (Object.assign({ id: d.id }, d.data())));
     latestPatients = list;
-    console.log("[LISTENER] onSnapshot patients: " + list.length + " documenti ricevuti");
-    // emetti solo alla stanza segreteria (cosi' non svegli gli studi)
     io.to("segreteria").emit("patientsSnapshot", list);
 }, (err) => {
-    console.error("[LISTENER] ERRORE onSnapshot patients:", err.message);
-    console.error("   code:", err.code);
-    console.error("   stack:", err.stack);
+    console.error("[onSnapshot] Errore listener patients:", err.message);
+    console.error("  code:", err.code);
 });
 app.use("/patients", (0, patients_1.setupPatientRoutes)(io));
 app.use("/doctors", (0, doctors_1.setupDoctorRoutes)(io));
