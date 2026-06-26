@@ -8,17 +8,46 @@ import * as admin from "firebase-admin";
 const router = express.Router();
 const SECRET_KEY = process.env.JWT_SECRET_KEY!;
 
+// Helper: esegue una promise con timeout
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      console.error(`[TIMEOUT] TIMEOUT dopo ${ms}ms su: ${label}`);
+      reject(new Error(`Timeout dopo ${ms}ms su ${label}`));
+    }, ms);
+    promise
+      .then((val) => {
+        clearTimeout(timer);
+        resolve(val);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 // Endpoint di login
 router.post("/login", async (req: any, res: any) => {
   const { username, password } = req.body;
+  console.log("[LOGIN] Tentativo di login per:", username);
+  console.log("[LOGIN] JWT_SECRET_KEY presente:", !!SECRET_KEY);
   try {
-    const snapshot = await db
-      .collection("admins")
-      .where("username", "==", username)
-      .get();
+    console.log("[LOGIN] Eseguo query Firestore su collection 'admins'...");
+    const t0 = Date.now();
+    const snapshot = await withTimeout(
+      db
+        .collection("admins")
+        .where("username", "==", username)
+        .get(),
+      15000,
+      "Firestore query admins"
+    );
+    console.log(`[LOGIN] Query completata in ${Date.now() - t0}ms, documenti trovati: ${snapshot.size}`);
     if (snapshot.empty) return res.status(401).json({ error: "Nessun utente" });
     const userDoc = snapshot.docs[0];
     const user = userDoc.data();
+    console.log("[LOGIN] Utente trovato, verifico password...");
     const validPassword = await bcrypt.compare(password, user.password);
 
     if (!validPassword)
@@ -30,9 +59,10 @@ router.post("/login", async (req: any, res: any) => {
       role: user.role, // 'admin' | 'segreteria' | 'medico'
     };
     const token = jwt.sign(payload, SECRET_KEY, { expiresIn: "12h" });
+    console.log("[LOGIN] Login riuscito per:", username);
     res.json({ token });
   } catch (err: any) {
-    console.error("Login error:", err.message);
+    console.error("[LOGIN] ERRORE:", err.message);
     console.error(err.stack);
     const detail =
       err.code !== undefined
@@ -42,7 +72,7 @@ router.post("/login", async (req: any, res: any) => {
   }
 });
 
-// 🔐 Registrazione nuovo utente (attualmente non utilizzato)
+//  Registrazione nuovo utente (attualmente non utilizzato)
 router.post("/register", async (req: any, res: any) => {
   const { username, password, avatarUrl } = req.body;
 
@@ -106,7 +136,7 @@ export function authorizeRoles(...allowed: string[]) {
   };
 }
 
-// Restituisce il profilo dell’utente loggato
+// Restituisce il profilo dell'utente loggato
 router.get(
   "/me",
   authenticateToken,

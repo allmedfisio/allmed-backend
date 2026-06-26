@@ -54,18 +54,42 @@ const firebase_1 = require("../firebase");
 const admin = __importStar(require("firebase-admin"));
 const router = express_1.default.Router();
 const SECRET_KEY = process.env.JWT_SECRET_KEY;
+// Helper: esegue una promise con timeout
+function withTimeout(promise, ms, label) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            console.error(`[TIMEOUT] TIMEOUT dopo ${ms}ms su: ${label}`);
+            reject(new Error(`Timeout dopo ${ms}ms su ${label}`));
+        }, ms);
+        promise
+            .then((val) => {
+            clearTimeout(timer);
+            resolve(val);
+        })
+            .catch((err) => {
+            clearTimeout(timer);
+            reject(err);
+        });
+    });
+}
 // Endpoint di login
 router.post("/login", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { username, password } = req.body;
+    console.log("[LOGIN] Tentativo di login per:", username);
+    console.log("[LOGIN] JWT_SECRET_KEY presente:", !!SECRET_KEY);
     try {
-        const snapshot = yield firebase_1.db
+        console.log("[LOGIN] Eseguo query Firestore su collection 'admins'...");
+        const t0 = Date.now();
+        const snapshot = yield withTimeout(firebase_1.db
             .collection("admins")
             .where("username", "==", username)
-            .get();
+            .get(), 15000, "Firestore query admins");
+        console.log(`[LOGIN] Query completata in ${Date.now() - t0}ms, documenti trovati: ${snapshot.size}`);
         if (snapshot.empty)
             return res.status(401).json({ error: "Nessun utente" });
         const userDoc = snapshot.docs[0];
         const user = userDoc.data();
+        console.log("[LOGIN] Utente trovato, verifico password...");
         const validPassword = yield bcryptjs_1.default.compare(password, user.password);
         if (!validPassword)
             return res.status(401).json({ error: "Password sbagliata" });
@@ -75,10 +99,11 @@ router.post("/login", (req, res) => __awaiter(void 0, void 0, void 0, function* 
             role: user.role, // 'admin' | 'segreteria' | 'medico'
         };
         const token = jsonwebtoken_1.default.sign(payload, SECRET_KEY, { expiresIn: "12h" });
+        console.log("[LOGIN] Login riuscito per:", username);
         res.json({ token });
     }
     catch (err) {
-        console.error("Login error:", err.message);
+        console.error("[LOGIN] ERRORE:", err.message);
         console.error(err.stack);
         const detail = err.code !== undefined
             ? `[${err.code}] ${err.message}`
@@ -86,7 +111,7 @@ router.post("/login", (req, res) => __awaiter(void 0, void 0, void 0, function* 
         res.status(500).json({ error: "Errore nel server", detail });
     }
 }));
-// 🔐 Registrazione nuovo utente (attualmente non utilizzato)
+//  Registrazione nuovo utente (attualmente non utilizzato)
 router.post("/register", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { username, password, avatarUrl } = req.body;
     try {
@@ -147,7 +172,7 @@ function authorizeRoles(...allowed) {
         next();
     };
 }
-// Restituisce il profilo dell’utente loggato
+// Restituisce il profilo dell'utente loggato
 router.get("/me", exports.authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const adminId = req.user.id;

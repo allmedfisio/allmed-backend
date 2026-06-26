@@ -14,11 +14,41 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.setupPingRoutes = setupPingRoutes;
 const express_1 = __importDefault(require("express"));
+const firebase_1 = require("../firebase");
 const router = express_1.default.Router();
 function setupPingRoutes(io) {
-    // Pingare il server
+    // Ping base
     router.get("/", (req, res) => __awaiter(this, void 0, void 0, function* () {
         res.status(200).send("pong");
+    }));
+    // Health check con test Firestore
+    router.get("/health", (req, res) => __awaiter(this, void 0, void 0, function* () {
+        try {
+            const t0 = Date.now();
+            // Test: proviamo a leggere un documento qualunque da 'admins'
+            const snapshot = yield firebase_1.db.collection("admins").limit(1).get();
+            const firestoreMs = Date.now() - t0;
+            res.json({
+                status: "ok",
+                firestore: {
+                    reachable: true,
+                    responseMs: firestoreMs,
+                    adminsCount: snapshot.size,
+                },
+                uptime: process.uptime(),
+            });
+        }
+        catch (err) {
+            console.error("[HEALTH] /ping/health Firestore error:", err.message, err.code);
+            res.status(503).json({
+                status: "error",
+                firestore: {
+                    reachable: false,
+                    error: err.message,
+                    code: err.code || null,
+                },
+            });
+        }
     }));
     return router;
 }

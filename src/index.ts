@@ -30,7 +30,7 @@ const io = new Server(httpServer, {
 
 let latestPatients: any[] = [];
 
-// Definisci la query che i client dei front-end dovranno “ascoltare”
+// Definisci la query che i client dei front-end dovranno "ascoltare"
 const waitingQuery = db
   .collection("patients")
   .where("status", "in", [
@@ -43,13 +43,21 @@ const waitingQuery = db
   .orderBy("assigned_number");
 
 // Attacca il listener
-waitingQuery.onSnapshot((snapshot) => {
-  const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-  latestPatients = list;
-
-  // emetti solo alla “stanza” segreteria (così non svegli gli studi)
-  io.to("segreteria").emit("patientsSnapshot", list);
-});
+console.log("[LISTENER] Avvio onSnapshot su collection 'patients'...");
+const unsubscribe = waitingQuery.onSnapshot(
+  (snapshot) => {
+    const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    latestPatients = list;
+    console.log("[LISTENER] onSnapshot patients: " + list.length + " documenti ricevuti");
+    // emetti solo alla stanza segreteria (cosi' non svegli gli studi)
+    io.to("segreteria").emit("patientsSnapshot", list);
+  },
+  (err) => {
+    console.error("[LISTENER] ERRORE onSnapshot patients:", err.message);
+    console.error("   code:", (err as any).code);
+    console.error("   stack:", (err as any).stack);
+  }
+);
 
 app.use("/patients", setupPatientRoutes(io));
 app.use("/doctors", setupDoctorRoutes(io));
@@ -62,16 +70,16 @@ app.use("/ping", setupPingRoutes(io));
 
 // Evento WebSocket quando un client si connette
 io.on("connection", (socket) => {
-  console.log("🔗 Client connesso:", socket.id);
+  console.log("[WS] Client connesso:", socket.id);
 
   // il client segreteria chiederà di unirsi a questa stanza
   socket.on("joinSegreteria", () => {
     socket.join("segreteria");
-    //invia subito l’ultimo snapshot anche a chi arriva adesso
+    //invia subito l'ultimo snapshot anche a chi arriva adesso
     socket.emit("patientsSnapshot", latestPatients);
   });
 
-  // il client sala d’attesa chiederà di unirsi a questa stanza
+  // il client sala d'attesa chiederà di unirsi a questa stanza
   socket.on("joinSala", () => {
     socket.join("sala-attesa");
   });
