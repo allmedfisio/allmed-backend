@@ -1,5 +1,7 @@
 import { Router } from "express";
+import crypto from "crypto";
 import { authenticateToken, authorizeRoles } from "./auth";
+import { db } from "../firebase";
 
 export function setupWhatsappRoutes(): Router {
   const router = Router();
@@ -8,11 +10,12 @@ export function setupWhatsappRoutes(): Router {
   const OPENWA_URL = process.env.OPENWA_API_URL || "http://localhost:2785/api";
   const OPENWA_KEY = process.env.OPENWA_API_KEY || "";
   const SESSION_ID = process.env.OPENWA_SESSION_ID || "";
+  const BACKEND_URL = process.env.BACKEND_PUBLIC_URL || "http://localhost:5000";
 
   /* ── POST /send — invia messaggio WhatsApp ── */
   router.post("/send", async (req: any, res: any) => {
     try {
-      const { phoneNumber, patientName, landingLink } = req.body;
+      const { phoneNumber, patientName, landingLink, patientId } = req.body;
 
       if (!phoneNumber || !patientName) {
         res
@@ -44,10 +47,18 @@ export function setupWhatsappRoutes(): Router {
         .replace(/\s*\(\d{2}\/\d{2}\/\d{4}\)\s*$/, "")
         .trim();
 
-      const link =
+      /* ── Link tracciamento ── */
+      const finalLandingLink =
         landingLink ||
         "https://www.allmedfisio.it/recensione/?n=" +
           encodeURIComponent(cleanName);
+
+      // Genera un ID di tracciamento univoco
+      const trackingId = crypto.randomUUID();
+
+      // Il link nel messaggio WhatsApp punta al nostro backend, che traccerà il click
+      // e reindirizzerà il paziente alla pagina recensioni col suo nome
+      const trackingLink = `${BACKEND_URL}/r/${trackingId}`;
 
       const message = [
         `\u{1F44B} *Gentile ${cleanName}*,`,
@@ -57,7 +68,7 @@ export function setupWhatsappRoutes(): Router {
         `Ci farebbe molto piacere conoscere la tua opinione sull’esperienza nel nostro centro.`,
         ``,
         `Puoi lasciare una recensione qui: \u{1F447}`,
-        `${link}`,
+        `${trackingLink}`,
         ``,
         `Il tuo feedback ci aiuta a migliorare ogni giorno. A presto! \u{1F64F}`,
       ].join("\n");
@@ -96,11 +107,32 @@ export function setupWhatsappRoutes(): Router {
       const result = await response.json();
       console.log(`✅ WhatsApp inviato a ${cleanName} (${chatId})`);
 
+      /* ── Salva tracciamento su Firestore ── */
+      try {
+        await db.collection("whatsapp_messages").add({
+          patient_id: patientId || null,
+          patient_name: patientName,
+          phone: phoneNumber,
+          chat_id: chatId,
+          tracking_id: trackingId,
+          sent_at: new Date().toISOString(),
+          message_id: result.id || null,
+          clicked_at: null,
+          click_ip: null,
+          click_user_agent: null,
+          landing_link: finalLandingLink,
+        });
+      } catch (firestoreErr: any) {
+        console.error("⚠️ Errore salvataggio tracciamento Firestore:", firestoreErr.message);
+        // Non blocchiamo la risposta — il messaggio è stato inviato
+      }
+
       res.json({
         success: true,
         patientName: cleanName,
         chatId,
         messageId: result.id || null,
+        trackingId,
       });
     } catch (error: any) {
       console.error("❌ WhatsApp send error:", error.message);

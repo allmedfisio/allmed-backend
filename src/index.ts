@@ -12,6 +12,7 @@ import { setupTicketRoutes } from "./routes/ticket";
 import { setupBusinessAnalyticsRoutes } from "./routes/business-analytics";
 import { setupCompensationsRoutes } from "./routes/professional-compensations";
 import { setupWhatsappRoutes } from "./routes/whatsapp";
+import { setupMarketingRoutes } from "./routes/marketing";
 import path from "path";
 
 dotenv.config();
@@ -62,6 +63,7 @@ app.use("/ticket", setupTicketRoutes(io));
 app.use("/business-analytics", setupBusinessAnalyticsRoutes());
 app.use("/professional-compensations", setupCompensationsRoutes());
 app.use("/whatsapp", setupWhatsappRoutes());
+app.use("/", setupMarketingRoutes()); // /r/:trackingId (pubblico) e /marketing/stats (protetto)
 app.use("/ping", setupPingRoutes(io));
 
 // Evento WebSocket quando un client si connette
