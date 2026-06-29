@@ -5,15 +5,15 @@ import { db } from "../firebase";
 export function setupMarketingRoutes(): Router {
   const router = Router();
 
-  /* ── GET /r/:trackingId — click redirect (PUBBLICO) ── */
-  router.get("/r/:trackingId", async (req: any, res: any) => {
+  /* ── GET /r/:patientSlug/:shortHash — click redirect (PUBBLICO) ── */
+  router.get("/r/:patientSlug/:shortHash", async (req: any, res: any) => {
     try {
-      const { trackingId } = req.params;
+      const { shortHash } = req.params;
 
-      // Cerca il messaggio per tracking_id
+      // Cerca il messaggio per short_hash
       const snapshot = await db
         .collection("whatsapp_messages")
-        .where("tracking_id", "==", trackingId)
+        .where("short_hash", "==", shortHash)
         .limit(1)
         .get();
 
@@ -36,8 +36,8 @@ export function setupMarketingRoutes(): Router {
         return;
       }
 
-      // Tracking ID non trovato — redirect alla homepage
-      console.warn(`⚠️ Tracking ID non trovato: ${trackingId}`);
+      // Short hash non trovato — redirect alla homepage
+      console.warn(`⚠️ Short hash non trovato: ${shortHash}`);
       res.redirect(302, "https://www.allmedfisio.it/");
     } catch (error: any) {
       console.error("❌ Errore redirect tracking:", error.message);

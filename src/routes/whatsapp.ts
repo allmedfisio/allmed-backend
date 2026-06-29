@@ -53,12 +53,20 @@ export function setupWhatsappRoutes(): Router {
         "https://www.allmedfisio.it/recensione/?n=" +
           encodeURIComponent(cleanName);
 
-      // Genera un ID di tracciamento univoco
-      const trackingId = crypto.randomUUID();
+      // Genera slug dal nome paziente (per URL più invitante)
+      const patientSlug = cleanName
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9\-]/g, "")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "");
 
-      // Il link nel messaggio WhatsApp punta al nostro backend, che traccerà il click
-      // e reindirizzerà il paziente alla pagina recensioni col suo nome
-      const trackingLink = `${BACKEND_URL}/r/${trackingId}`;
+      // Hash corto per il lookup (più invitante di un UUID intero)
+      const shortHash = crypto.randomBytes(4).toString("hex");
+
+      // Il link nel messaggio WhatsApp ora ha la forma: /r/paolo-zuccaro/a1b2c3d4
+      // Il paziente vede il proprio nome → più rassicurante e cliccabile
+      const trackingLink = `${BACKEND_URL}/r/${patientSlug}/${shortHash}`;
 
       const message = [
         `\u{1F44B} *Gentile ${cleanName}*,`,
@@ -114,7 +122,8 @@ export function setupWhatsappRoutes(): Router {
           patient_name: patientName,
           phone: phoneNumber,
           chat_id: chatId,
-          tracking_id: trackingId,
+          short_hash: shortHash,
+          patient_slug: patientSlug,
           sent_at: new Date().toISOString(),
           message_id: result.id || null,
           clicked_at: null,
@@ -132,7 +141,8 @@ export function setupWhatsappRoutes(): Router {
         patientName: cleanName,
         chatId,
         messageId: result.id || null,
-        trackingId,
+        shortHash,
+        patientSlug,
       });
     } catch (error: any) {
       console.error("❌ WhatsApp send error:", error.message);
